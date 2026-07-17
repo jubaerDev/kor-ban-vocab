@@ -113,7 +113,46 @@ def delete_chapter(chapter_number):
     rebuild_database()
 
 
-def rebuild_database():
+def get_chapter_full_analysis(chapter_number):
+    """
+    ওই chapter এর raw file এ থাকা প্রতিটা word ফেরত দেয়, সাথে একটা status:
+    - "unique"   → এই chapter এর জন্যই নতুন/unique হিসেবে গণ্য হয়েছে
+    - "repeat_in_file" → একই chapter এর raw file এর ভেতরেই এই word বার বার এসেছে
+    - "seen_before" → word টা আগের অন্য কোনো chapter এ ইতিমধ্যে আছে (with chapter no.)
+    """
+    client = get_client()
+
+    raw = (
+        client.table("raw_chapter_words")
+        .select("korean_word, bangla_meaning, id")
+        .eq("chapter_number", chapter_number)
+        .order("id")
+        .execute()
+    ).data
+
+    vocab_rows = client.table("vocab_words").select("korean_word, chapter_number").execute().data
+    vocab_map = {r["korean_word"]: r["chapter_number"] for r in vocab_rows}
+
+    local_seen = set()
+    results = []
+    for r in raw:
+        k, b = r["korean_word"], r["bangla_meaning"]
+        if k in local_seen:
+            status = "🔁 একই chapter এ repeat"
+        else:
+            local_seen.add(k)
+            assigned = vocab_map.get(k)
+            if assigned == chapter_number:
+                status = "✅ Unique (এই chapter এর)"
+            elif assigned is not None:
+                status = f"↩️ আগে থেকেই আছে (Chapter {assigned})"
+            else:
+                status = "⚠️ অজানা"
+        results.append({"Korean": k, "Bangla": b, "Status": status})
+    return results
+
+
+
     """
     raw_chapter_words থেকে chapter-number ক্রম অনুযায়ী প্রতিটা chapter প্রসেস করে
     vocab_words ও chapters_log সম্পূর্ণ নতুন করে বানায়। এটাই নিশ্চিত করে যে
