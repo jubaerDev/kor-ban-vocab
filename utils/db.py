@@ -25,6 +25,33 @@ def get_client():
     return create_client(url, key)
 
 
+def _fetch_all(table, select_cols, eq_filter=None, order_cols=None, page_size=1000):
+    """
+    Supabase/PostgREST প্রতি request এ default সর্বোচ্চ ~1000 row ফেরত দেয়।
+    Chapter/word সংখ্যা বাড়ার সাথে সাথে এই limit ছাড়িয়ে গেলে data silently
+    কেটে যেতে পারে (কোনো error ছাড়াই) — এই function .range() দিয়ে ধাপে ধাপে
+    সব row নিশ্চিতভাবে নিয়ে আসে।
+    """
+    client = get_client()
+    all_rows = []
+    start = 0
+    while True:
+        q = client.table(table).select(select_cols)
+        if eq_filter:
+            col, val = eq_filter
+            q = q.eq(col, val)
+        if order_cols:
+            for col in order_cols:
+                q = q.order(col)
+        q = q.range(start, start + page_size - 1)
+        batch = q.execute().data
+        all_rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        start += page_size
+    return all_rows
+
+
 def _clean_value(value):
     """NaN/empty কোনো value কে None/খালি string বানিয়ে দেয়, এবং Unicode কে
     normalize (NFC) করে যাতে একই দেখতে word ভিন্ন byte representation এর
@@ -43,20 +70,16 @@ def _clean_value(value):
 # ---------- READ helpers (used by pages) ----------
 
 def get_all_words():
-    client = get_client()
-    result = client.table("vocab_words").select("korean_word, bangla_meaning").execute()
-    return {row["korean_word"]: row["bangla_meaning"] for row in result.data}
+    rows = _fetch_all("vocab_words", "korean_word, bangla_meaning")
+    return {row["korean_word"]: row["bangla_meaning"] for row in rows}
 
 
 def get_words_by_chapter(chapter_number):
-    client = get_client()
-    result = (
-        client.table("vocab_words")
-        .select("korean_word, bangla_meaning, date_added")
-        .eq("chapter_number", chapter_number)
-        .execute()
+    return _fetch_all(
+        "vocab_words",
+        "korean_word, bangla_meaning, date_added",
+        eq_filter=("chapter_number", chapter_number),
     )
-    return result.data
 
 
 def get_all_chapter_numbers():
@@ -125,17 +148,14 @@ def get_chapter_full_analysis(chapter_number):
     - "repeat_in_file" → একই chapter এর raw file এর ভেতরেই এই word বার বার এসেছে
     - "seen_before" → word টা আগের অন্য কোনো chapter এ ইতিমধ্যে আছে (with chapter no.)
     """
-    client = get_client()
+    raw = _fetch_all(
+        "raw_chapter_words",
+        "korean_word, bangla_meaning, id",
+        eq_filter=("chapter_number", chapter_number),
+        order_cols=["id"],
+    )
 
-    raw = (
-        client.table("raw_chapter_words")
-        .select("korean_word, bangla_meaning, id")
-        .eq("chapter_number", chapter_number)
-        .order("id")
-        .execute()
-    ).data
-
-    vocab_rows = client.table("vocab_words").select("korean_word, chapter_number").execute().data
+    vocab_rows = _fetch_all("vocab_words", "korean_word, chapter_number")
     vocab_map = {
         unicodedata.normalize("NFC", (r["korean_word"] or "").strip()): r["chapter_number"]
         for r in vocab_rows
@@ -169,13 +189,11 @@ def rebuild_database():
     """
     client = get_client()
 
-    raw = (
-        client.table("raw_chapter_words")
-        .select("chapter_number, korean_word, bangla_meaning, id")
-        .order("chapter_number")
-        .order("id")
-        .execute()
-    ).data
+    raw = _fetch_all(
+        "raw_chapter_words",
+        "chapter_number, korean_word, bangla_meaning, id",
+        order_cols=["chapter_number", "id"],
+    )
 
     # chapter অনুযায়ী group করা (raw ইতিমধ্যে chapter_number, id অনুযায়ী sorted)
     by_chapter = {}
