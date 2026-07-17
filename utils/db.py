@@ -11,6 +11,7 @@ because rebuild always processes chapters in numeric order.
 """
 
 import math
+import unicodedata
 from datetime import datetime, timezone
 
 import streamlit as st
@@ -25,13 +26,17 @@ def get_client():
 
 
 def _clean_value(value):
-    """NaN/empty কোনো value কে None/খালি string বানিয়ে দেয় যাতে DB এ পাঠানো যায়।"""
+    """NaN/empty কোনো value কে None/খালি string বানিয়ে দেয়, এবং Unicode কে
+    normalize (NFC) করে যাতে একই দেখতে word ভিন্ন byte representation এর
+    কারণে আলাদা ধরা না পড়ে (composed vs decomposed Hangul/Bangla সমস্যা)।"""
     if value is None:
         return None
     if isinstance(value, float) and math.isnan(value):
         return ""
-    if isinstance(value, str) and value.strip().lower() == "nan":
-        return ""
+    if isinstance(value, str):
+        if value.strip().lower() == "nan":
+            return ""
+        return unicodedata.normalize("NFC", value.strip())
     return value
 
 
@@ -131,12 +136,15 @@ def get_chapter_full_analysis(chapter_number):
     ).data
 
     vocab_rows = client.table("vocab_words").select("korean_word, chapter_number").execute().data
-    vocab_map = {r["korean_word"]: r["chapter_number"] for r in vocab_rows}
+    vocab_map = {
+        unicodedata.normalize("NFC", (r["korean_word"] or "").strip()): r["chapter_number"]
+        for r in vocab_rows
+    }
 
     local_seen = set()
     results = []
     for r in raw:
-        k, b = r["korean_word"], r["bangla_meaning"]
+        k, b = unicodedata.normalize("NFC", (r["korean_word"] or "").strip()), r["bangla_meaning"]
         if k in local_seen:
             status = "🔁 একই chapter এ repeat"
         else:
@@ -186,7 +194,7 @@ def rebuild_database():
         local_seen = set()
         new_this_chapter = []
         for r in rows:
-            k = r["korean_word"]
+            k = unicodedata.normalize("NFC", (r["korean_word"] or "").strip())
             if not k or k in local_seen:
                 continue
             local_seen.add(k)
@@ -198,7 +206,7 @@ def rebuild_database():
         for r in new_this_chapter:
             vocab_payload.append(
                 {
-                    "korean_word": r["korean_word"],
+                    "korean_word": unicodedata.normalize("NFC", (r["korean_word"] or "").strip()),
                     "bangla_meaning": r["bangla_meaning"],
                     "chapter_number": chapter_number,
                     "date_added": now,
