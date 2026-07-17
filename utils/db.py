@@ -152,7 +152,7 @@ def get_chapter_full_analysis(chapter_number):
     return results
 
 
-
+def rebuild_database():
     """
     raw_chapter_words থেকে chapter-number ক্রম অনুযায়ী প্রতিটা chapter প্রসেস করে
     vocab_words ও chapters_log সম্পূর্ণ নতুন করে বানায়। এটাই নিশ্চিত করে যে
