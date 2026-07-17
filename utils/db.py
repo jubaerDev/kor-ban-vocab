@@ -1,3 +1,18 @@
+"""
+Supabase connection + all read/write helpers.
+
+Design note: `raw_chapter_words` is the source of truth. Every upload
+saves its raw (un-deduplicated) rows there. `vocab_words` and
+`chapters_log` are *derived* tables, fully rebuilt from raw data every
+time something changes. This way, no matter what order chapters are
+uploaded in (e.g. chapter 10, then 20, then 11-19 later), the final
+"which chapter did this word first appear in" is always correct,
+because rebuild always processes chapters in numeric order.
+"""
+
+import math
+from datetime import datetime, timezone
+
 import streamlit as st
 from supabase import create_client
 
@@ -8,6 +23,19 @@ def get_client():
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
+
+def _clean_value(value):
+    """NaN/empty কোনো value কে None/খালি string বানিয়ে দেয় যাতে DB এ পাঠানো যায়।"""
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    if isinstance(value, str) and value.strip().lower() == "nan":
+        return ""
+    return value
+
+
+# ---------- READ helpers (used by pages) ----------
 
 def get_all_words():
     client = get_client()
@@ -38,87 +66,124 @@ def get_chapters_log():
     return result.data
 
 
-def _clean_value(value):
-    """NaN/empty কোনো value কে database-এ পাঠানোর আগে None/খালি string বানিয়ে দেয়।"""
-    import math
-    if value is None:
-        return None
-    if isinstance(value, float) and math.isnan(value):
-        return ""
-    if isinstance(value, str) and value.strip().lower() == "nan":
-        return ""
-    return value
-
-
-def insert_new_words(rows, chapter_number):
-    if not rows:
-        return
+def chapter_exists(chapter_number):
+    """চেক করে এই chapter number আগে কখনো upload হয়েছে কিনা (duplicate warning এর জন্য)।"""
     client = get_client()
-    from datetime import datetime, timezone
+    result = (
+        client.table("raw_chapter_words")
+        .select("id")
+        .eq("chapter_number", chapter_number)
+        .limit(1)
+        .execute()
+    )
+    return len(result.data) > 0
+
+
+# ---------- WRITE helpers ----------
+
+def save_raw_chapter(chapter_number, korean_bangla_pairs):
+    """
+    korean_bangla_pairs: list of (korean_word, bangla_meaning) tuples,
+    straight from the uploaded file (not deduplicated against DB yet).
+    Overwrites any existing raw rows for this chapter (for re-upload).
+    """
+    client = get_client()
+    # আগে এই chapter এর পুরনো raw data থাকলে মুছে ফেলা (re-upload/overwrite এর জন্য)
+    client.table("raw_chapter_words").delete().eq("chapter_number", chapter_number).execute()
 
     now = datetime.now(timezone.utc).isoformat()
     payload = [
         {
-            "korean_word": _clean_value(r["korean_word"]),
-            "bangla_meaning": _clean_value(r["bangla_meaning"]),
             "chapter_number": int(chapter_number),
-            "date_added": now,
+            "korean_word": _clean_value(k),
+            "bangla_meaning": _clean_value(b),
+            "uploaded_at": now,
         }
-        for r in rows
-        if _clean_value(r["korean_word"])
+        for k, b in korean_bangla_pairs
+        if _clean_value(k)
     ]
     if payload:
-        client.table("vocab_words").insert(payload).execute()
+        client.table("raw_chapter_words").insert(payload).execute()
 
 
-def upsert_chapter_log(chapter_number, total_words_in_file, unique_new_words):
+def delete_chapter(chapter_number):
+    """একটা chapter সম্পূর্ণ মুছে ফেলে (raw সহ) এবং database rebuild করে।"""
     client = get_client()
-    from datetime import datetime, timezone
-
-    now = datetime.now(timezone.utc).isoformat()
-    client.table("chapters_log").upsert(
-        {
-            "chapter_number": int(chapter_number),
-            "total_words_in_file": int(total_words_in_file),
-            "unique_new_words": int(unique_new_words),
-            "upload_date": now,
-        },
-        on_conflict="chapter_number",
-    ).execute()    client = get_client()
-    result = client.table("chapters_log").select("*").order("chapter_number").execute()
-    return result.data
+    client.table("raw_chapter_words").delete().eq("chapter_number", chapter_number).execute()
+    rebuild_database()
 
 
-def insert_new_words(rows, chapter_number):
-    if not rows:
-        return
+def rebuild_database():
+    """
+    raw_chapter_words থেকে chapter-number ক্রম অনুযায়ী প্রতিটা chapter প্রসেস করে
+    vocab_words ও chapters_log সম্পূর্ণ নতুন করে বানায়। এটাই নিশ্চিত করে যে
+    upload এর ক্রম যাই হোক, chapter number এর প্রকৃত ক্রম অনুযায়ী "প্রথম কোথায়
+    দেখা গেছে" হিসাব হবে।
+    """
     client = get_client()
-    from datetime import datetime, timezone
 
+    raw = (
+        client.table("raw_chapter_words")
+        .select("chapter_number, korean_word, bangla_meaning, id")
+        .order("chapter_number")
+        .order("id")
+        .execute()
+    ).data
+
+    # chapter অনুযায়ী group করা (raw ইতিমধ্যে chapter_number, id অনুযায়ী sorted)
+    by_chapter = {}
+    for row in raw:
+        by_chapter.setdefault(row["chapter_number"], []).append(row)
+
+    seen_words = set()
+    vocab_payload = []
+    log_payload = []
     now = datetime.now(timezone.utc).isoformat()
-    payload = [
-        {
-            "korean_word": r["korean_word"],
-            "bangla_meaning": r["bangla_meaning"],
-            "chapter_number": chapter_number,
-            "date_added": now,
-        }
-        for r in rows
-    ]
-    client.table("vocab_words").insert(payload).execute()
 
+    for chapter_number in sorted(by_chapter.keys()):
+        rows = by_chapter[chapter_number]
+        total_in_file = len(rows)
 
-def upsert_chapter_log(chapter_number, total_words_in_file, unique_new_words):
-    client = get_client()
-    from datetime import datetime, timezone
+        local_seen = set()
+        new_this_chapter = []
+        for r in rows:
+            k = r["korean_word"]
+            if not k or k in local_seen:
+                continue
+            local_seen.add(k)
+            if k in seen_words:
+                continue
+            seen_words.add(k)
+            new_this_chapter.append(r)
 
-    now = datetime.now(timezone.utc).isoformat()
-    client.table("chapters_log").upsert(
-        {
-            "chapter_number": chapter_number,
-            "total_words_in_file": total_words_in_file,
-            "unique_new_words": unique_new_words,
-            "upload_date": now,
-        },
-        on_conflict="chapter_number",
-    ).execute()
+        for r in new_this_chapter:
+            vocab_payload.append(
+                {
+                    "korean_word": r["korean_word"],
+                    "bangla_meaning": r["bangla_meaning"],
+                    "chapter_number": chapter_number,
+                    "date_added": now,
+                }
+            )
+
+        log_payload.append(
+            {
+                "chapter_number": chapter_number,
+                "total_words_in_file": total_in_file,
+                "unique_new_words": len(new_this_chapter),
+                "upload_date": now,
+            }
+        )
+
+    # পুরনো vocab_words / chapters_log খালি করা
+    client.table("vocab_words").delete().gte("id", 0).execute()
+    client.table("chapters_log").delete().gte("chapter_number", 0).execute()
+
+    if vocab_payload:
+        # বড় হলে batch করে insert করা (Supabase এর সাথে সমস্যা এড়াতে)
+        batch_size = 500
+        for i in range(0, len(vocab_payload), batch_size):
+            client.table("vocab_words").insert(vocab_payload[i : i + batch_size]).execute()
+
+    if log_payload:
+        client.table("chapters_log").insert(log_payload).execute()
