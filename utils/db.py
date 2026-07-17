@@ -1,4 +1,3 @@
-
 import streamlit as st
 from supabase import create_client
 
@@ -35,6 +34,57 @@ def get_all_chapter_numbers():
 
 def get_chapters_log():
     client = get_client()
+    result = client.table("chapters_log").select("*").order("chapter_number").execute()
+    return result.data
+
+
+def _clean_value(value):
+    """NaN/empty কোনো value কে database-এ পাঠানোর আগে None/খালি string বানিয়ে দেয়।"""
+    import math
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    if isinstance(value, str) and value.strip().lower() == "nan":
+        return ""
+    return value
+
+
+def insert_new_words(rows, chapter_number):
+    if not rows:
+        return
+    client = get_client()
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    payload = [
+        {
+            "korean_word": _clean_value(r["korean_word"]),
+            "bangla_meaning": _clean_value(r["bangla_meaning"]),
+            "chapter_number": int(chapter_number),
+            "date_added": now,
+        }
+        for r in rows
+        if _clean_value(r["korean_word"])
+    ]
+    if payload:
+        client.table("vocab_words").insert(payload).execute()
+
+
+def upsert_chapter_log(chapter_number, total_words_in_file, unique_new_words):
+    client = get_client()
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    client.table("chapters_log").upsert(
+        {
+            "chapter_number": int(chapter_number),
+            "total_words_in_file": int(total_words_in_file),
+            "unique_new_words": int(unique_new_words),
+            "upload_date": now,
+        },
+        on_conflict="chapter_number",
+    ).execute()    client = get_client()
     result = client.table("chapters_log").select("*").order("chapter_number").execute()
     return result.data
 
