@@ -28,14 +28,65 @@ with tab1:
         st.warning("এই chapter এ কোনো unique word নেই।")
     else:
         st.write(f"**Chapter {selected}** — {len(df)} টা unique word")
-        st.dataframe(df[["korean_word", "bangla_meaning", "date_added"]])
+        st.caption("যেগুলো CSV তে চাও, সেগুলোর পাশের বক্সে ✅ টিক দাও (নিচে সব/কোনোটা না বাছারও বাটন আছে)।")
 
-        csv_bytes = df[["korean_word", "bangla_meaning"]].to_csv(
+        display_df = df[["korean_word", "bangla_meaning"]].copy()
+        display_df.insert(0, "Select", False)
+
+        col_a, col_b = st.columns(2)
+        select_all = col_a.button("✅ সব সিলেক্ট করো")
+        clear_all = col_b.button("❌ সব বাদ দাও")
+
+        state_key = f"select_state_{selected}"
+        if select_all:
+            st.session_state[state_key] = True
+        elif clear_all:
+            st.session_state[state_key] = False
+
+        if state_key in st.session_state:
+            display_df["Select"] = st.session_state[state_key]
+
+        edited_df = st.data_editor(
+            display_df,
+            column_config={
+                "Select": st.column_config.CheckboxColumn("বাছো"),
+                "korean_word": st.column_config.TextColumn("Korean word", disabled=True),
+                "bangla_meaning": st.column_config.TextColumn("Bangla word", disabled=True),
+            },
+            hide_index=True,
+            use_container_width=True,
+            key=f"editor_{selected}",
+        )
+
+        selected_rows = edited_df[edited_df["Select"]]
+
+        st.write(f"**{len(selected_rows)} টা word সিলেক্ট করা হয়েছে**")
+
+        # --- সব unique word এর CSV (আগের মতোই) ---
+        all_csv_bytes = df[["korean_word", "bangla_meaning"]].to_csv(
             index=False, header=["Korean word", "Bangla word"]
         ).encode("utf-8-sig")
-        st.download_button(
-            "⬇️ CSV Download", data=csv_bytes, file_name=f"chapter_{selected}_unique.csv", mime="text/csv"
+
+        col1, col2 = st.columns(2)
+        col1.download_button(
+            "⬇️ সব Unique Word এর CSV",
+            data=all_csv_bytes,
+            file_name=f"chapter_{selected}_unique.csv",
+            mime="text/csv",
         )
+
+        if not selected_rows.empty:
+            selected_csv_bytes = selected_rows[["korean_word", "bangla_meaning"]].to_csv(
+                index=False, header=["Korean word", "Bangla word"]
+            ).encode("utf-8-sig")
+            col2.download_button(
+                f"⬇️ শুধু সিলেক্ট করা {len(selected_rows)} টা এর CSV",
+                data=selected_csv_bytes,
+                file_name=f"chapter_{selected}_selected.csv",
+                mime="text/csv",
+            )
+        else:
+            col2.button("⬇️ শুধু সিলেক্ট করা এর CSV", disabled=True)
 
 with tab2:
     st.caption(
