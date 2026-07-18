@@ -5,8 +5,7 @@ from utils.translator import annotate_paragraph
 st.set_page_config(page_title="Paragraph Translator", page_icon="📖", layout="wide")
 st.title("📖 Paragraph Translator")
 st.caption(
-    "Korean paragraph paste করো — আমাদের word database থেকে meaning বসিয়ে, "
-    "না পেলে grammar particle আলাদা করে বা online translate দিয়ে annotate করে দেবে। "
+    "Korean paragraph paste করো — AI (Gemini/Anthropic) দিয়ে annotate করবে। "
     "Save করার আগে ফলাফল ঠিকমতো check/edit করে নিও।"
 )
 
@@ -25,27 +24,45 @@ paragraph_label = st.text_input("Paragraph Label", value="অনুচ্ছে�
 
 korean_text = st.text_area("Korean Paragraph পেস্ট করো", height=150, placeholder="한국에서는 상대에 따라 인사하는 방식이 다릅니다...")
 
-use_fallback = st.checkbox("Word list এ না পেলে rule-based fallback ব্যবহার করো (শেষ upায়)", value=True)
+use_fallback = st.checkbox("AI কাজ না করলে rule-based fallback ব্যবহার করো (শেষ উপায়, কম accurate)", value=False)
 use_vocab = st.checkbox(
-    "আমাদের word database ব্যবহার করো (uncheck করলে Gemini সম্পূর্ণ স্বাধীনভাবে, best-quality translate করবে)",
-    value=True,
+    "আমাদের word database AI কে দাও (uncheck করলে Gemini সম্পূর্ণ স্বাধীনভাবে translate করবে)",
+    value=False,
 )
 
 if st.button("🔍 Auto-Annotate করো", type="primary", disabled=not korean_text.strip()):
-    with st.spinner("Word database এর সাথে মেলানো হচ্ছে..."):
-        vocab = get_all_words()
-        annotated, unmatched = annotate_paragraph(korean_text, vocab, use_online_fallback=use_fallback, use_vocab=use_vocab)
+    with st.spinner("AI দিয়ে annotate করা হচ্ছে..."):
+        vocab = get_all_words() if use_vocab else {}
+        annotated, unmatched, engine, error_detail = annotate_paragraph(
+            korean_text, vocab, use_online_fallback=use_fallback, use_vocab=use_vocab
+        )
     st.session_state["annotated_draft"] = annotated
     st.session_state["unmatched"] = unmatched
+    st.session_state["engine"] = engine
+    st.session_state["error_detail"] = error_detail
 
 if "annotated_draft" in st.session_state:
+    engine = st.session_state.get("engine")
+    if engine == "anthropic":
+        st.success("✅ Anthropic (Claude) দিয়ে annotate হয়েছে")
+    elif engine == "gemini":
+        st.success("✅ Gemini দিয়ে annotate হয়েছে")
+    elif engine == "rule_based":
+        st.error(
+            "⚠️ AI (Anthropic/Gemini) দুটোই কাজ করেনি, তাই rule-based (কম accurate) পদ্ধতি ব্যবহার হয়েছে।"
+        )
+
+    if st.session_state.get("error_detail"):
+        with st.expander("🔧 আসল error message দেখো (debug)"):
+            st.code(st.session_state["error_detail"])
+
     st.subheader("ফলাফল (Save করার আগে ঠিক করে নাও)")
     edited = st.text_area("Annotated Text", value=st.session_state["annotated_draft"], height=200, key="edit_box")
 
     if st.session_state.get("unmatched"):
         st.warning(
-            f"❓ চিহ্নিত {len(st.session_state['unmatched'])} টা word এর meaning সরাসরি পাওয়া যায়নি বা "
-            "translate করতে সমস্যা হয়েছে — উপরে (❓) দেখলে ম্যানুয়ালি ঠিক করে দাও: "
+            f"❓ চিহ্নিত {len(st.session_state['unmatched'])} টা word এর meaning সরাসরি পাওয়া যায়নি — "
+            "উপরে (❓) দেখলে ম্যানুয়ালি ঠিক করে দাও: "
             + ", ".join(st.session_state["unmatched"][:15])
         )
 
