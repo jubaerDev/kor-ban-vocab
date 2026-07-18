@@ -295,6 +295,80 @@ def resolve_feedback(feedback_id):
     client.table("question_feedback").update({"resolved": True}).eq("id", feedback_id).execute()
 
 
+# ---------- Flashcard / Spaced Repetition (Leitner box system) ----------
+
+LEITNER_INTERVALS = {1: 0, 2: 1, 3: 3, 4: 7, 5: 14, 6: 30}  # box_level -> দিন পর পরের review
+MAX_BOX = 6
+
+
+def get_all_words_with_chapter():
+    return _fetch_all("vocab_words", "korean_word, bangla_meaning, chapter_number")
+
+
+def get_due_flashcards(chapter_number=None):
+    """
+    আজকে review করার মতো সব word ফেরত দেয় (নতুন word + যাদের next_review_date
+    আজ বা তার আগে)। chapter_number দিলে শুধু সেই chapter এর মধ্যে খুঁজবে।
+    """
+    import datetime
+
+    today = datetime.date.today().isoformat()
+
+    vocab = get_all_words_with_chapter()
+    if chapter_number is not None:
+        vocab = [v for v in vocab if v["chapter_number"] == chapter_number]
+
+    progress_rows = _fetch_all(
+        "flashcard_progress", "korean_word, box_level, next_review_date, times_reviewed, times_correct"
+    )
+    progress_map = {r["korean_word"]: r for r in progress_rows}
+
+    due = []
+    for w in vocab:
+        p = progress_map.get(w["korean_word"])
+        if p is None:
+            due.append({**w, "box_level": 1, "times_reviewed": 0, "times_correct": 0})
+        elif p["next_review_date"] <= today:
+            due.append({**w, "box_level": p["box_level"], "times_reviewed": p["times_reviewed"], "times_correct": p["times_correct"]})
+
+    return due
+
+
+def update_flashcard_progress(korean_word, chapter_number, correct):
+    import datetime
+
+    client = get_client()
+    existing = client.table("flashcard_progress").select("*").eq("korean_word", korean_word).execute().data
+    current = existing[0] if existing else None
+
+    current_box = current["box_level"] if current else 1
+    times_reviewed = current["times_reviewed"] if current else 0
+    times_correct = current["times_correct"] if current else 0
+
+    new_box = min(current_box + 1, MAX_BOX) if correct else 1
+    next_review = (datetime.date.today() + datetime.timedelta(days=LEITNER_INTERVALS[new_box])).isoformat()
+
+    client.table("flashcard_progress").upsert(
+        {
+            "korean_word": korean_word,
+            "chapter_number": chapter_number,
+            "box_level": new_box,
+            "next_review_date": next_review,
+            "last_reviewed": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "times_reviewed": times_reviewed + 1,
+            "times_correct": times_correct + (1 if correct else 0),
+        },
+        on_conflict="korean_word",
+    ).execute()
+
+
+def get_flashcard_stats():
+    rows = _fetch_all("flashcard_progress", "box_level")
+    total_tracked = len(rows)
+    mastered = sum(1 for r in rows if r["box_level"] >= MAX_BOX)
+    return {"total_tracked": total_tracked, "mastered": mastered}
+
+
 def rebuild_database():
     """
     raw_chapter_words থেকে chapter-number ক্রম অনুযায়ী প্রতিটা chapter প্রসেস করে
