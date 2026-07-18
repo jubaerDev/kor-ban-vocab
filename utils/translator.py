@@ -102,9 +102,17 @@ def annotate_paragraph_gemini(korean_text, vocab: dict, use_vocab=True):
 {vocab_block}Annotate করার Korean paragraph:
 {korean_text}"""
 
-    response = client.models.generate_content(model="gemini-2.0-flash", contents=user_msg)
-    annotated = response.text.strip()
-    return annotated, []
+    # একাধিক বর্তমান free-tier model ক্রমান্বয়ে চেষ্টা করা হয়, যাতে Google কোনো একটা
+    # deprecate/quota-0 করে দিলেও app immediately ভেঙে না পড়ে।
+    candidate_models = ["gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-flash-latest"]
+    last_err = None
+    for model_name in candidate_models:
+        try:
+            response = client.models.generate_content(model=model_name, contents=user_msg)
+            return response.text.strip(), []
+        except Exception as e:
+            last_err = e
+    raise last_err
 
 
 # ---------- Fallback (rule-based, কম accurate) ----------
