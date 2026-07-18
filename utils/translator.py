@@ -76,8 +76,10 @@ Annotate করার Korean paragraph:
     return annotated, []
 
 
-def annotate_paragraph_gemini(korean_text, vocab: dict):
-    """Google Gemini (সম্পূর্ণ ফ্রি tier) দিয়ে accurate annotate করে।"""
+def annotate_paragraph_gemini(korean_text, vocab: dict, use_vocab=True):
+    """Google Gemini (সম্পূর্ণ ফ্রি tier) দিয়ে accurate annotate করে।
+    use_vocab=False দিলে আমাদের word database একদম ব্যবহার হবে না —
+    Gemini তার নিজের জ্ঞান দিয়ে সম্পূর্ণ স্বাধীনভাবে annotate করবে (best quality)।"""
     import google.generativeai as genai
 
     api_key = st.secrets.get("GEMINI_API_KEY")
@@ -85,15 +87,17 @@ def annotate_paragraph_gemini(korean_text, vocab: dict):
         raise RuntimeError("GEMINI_API_KEY secrets এ পাওয়া যায়নি।")
 
     genai.configure(api_key=api_key)
-    relevant_vocab = _filter_relevant_vocab(korean_text, vocab)
-    vocab_text = "\n".join(f"{k} = {v}" for k, v in relevant_vocab.items()) or "(কোনো প্রাসঙ্গিক word পাওয়া যায়নি)"
+
+    if use_vocab:
+        relevant_vocab = _filter_relevant_vocab(korean_text, vocab)
+        vocab_text = "\n".join(f"{k} = {v}" for k, v in relevant_vocab.items()) or "(কোনো প্রাসঙ্গিক word পাওয়া যায়নি)"
+        vocab_block = f"পরিচিত word list (অগ্রাধিকার দাও):\n{vocab_text}\n\n"
+    else:
+        vocab_block = ""
 
     user_msg = f"""{SYSTEM_PROMPT}
 
-পরিচিত word list (অগ্রাধিকার দাও):
-{vocab_text}
-
-Annotate করার Korean paragraph:
+{vocab_block}Annotate করার Korean paragraph:
 {korean_text}"""
 
     model = genai.GenerativeModel("gemini-2.0-flash")
@@ -140,17 +144,18 @@ def annotate_paragraph_rule_based(korean_text, vocab: dict):
     return " ".join(output_parts), unmatched
 
 
-def annotate_paragraph(korean_text, vocab: dict, use_online_fallback=True):
+def annotate_paragraph(korean_text, vocab: dict, use_online_fallback=True, use_vocab=True):
     """মূল entry point: Anthropic (যদি key থাকে) → Gemini (ফ্রি, যদি key থাকে)
-    → rule-based fallback, এই ক্রমে চেষ্টা করে।"""
+    → rule-based fallback, এই ক্রমে চেষ্টা করে।
+    use_vocab=False দিলে AI আমাদের word database না দেখে সম্পূর্ণ স্বাধীনভাবে annotate করবে।"""
     errors = []
     try:
-        return annotate_paragraph_ai(korean_text, vocab)
+        return annotate_paragraph_ai(korean_text, vocab if use_vocab else {})
     except Exception as e:
         errors.append(f"Anthropic: {e}")
 
     try:
-        return annotate_paragraph_gemini(korean_text, vocab)
+        return annotate_paragraph_gemini(korean_text, vocab, use_vocab=use_vocab)
     except Exception as e:
         errors.append(f"Gemini: {e}")
 
