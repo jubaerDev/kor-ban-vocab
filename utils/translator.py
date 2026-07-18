@@ -148,20 +148,24 @@ def annotate_paragraph_rule_based(korean_text, vocab: dict):
 def annotate_paragraph(korean_text, vocab: dict, use_online_fallback=True, use_vocab=True):
     """মূল entry point: Anthropic (যদি key থাকে) → Gemini (ফ্রি, যদি key থাকে)
     → rule-based fallback, এই ক্রমে চেষ্টা করে।
+    Returns: (annotated_text, unmatched_list, engine_used, error_detail)
     use_vocab=False দিলে AI আমাদের word database না দেখে সম্পূর্ণ স্বাধীনভাবে annotate করবে।"""
     errors = []
     try:
-        return annotate_paragraph_ai(korean_text, vocab if use_vocab else {})
+        annotated, unmatched = annotate_paragraph_ai(korean_text, vocab if use_vocab else {})
+        return annotated, unmatched, "anthropic", None
     except Exception as e:
         errors.append(f"Anthropic: {e}")
 
     try:
-        return annotate_paragraph_gemini(korean_text, vocab, use_vocab=use_vocab)
+        annotated, unmatched = annotate_paragraph_gemini(korean_text, vocab, use_vocab=use_vocab)
+        return annotated, unmatched, "gemini", None
     except Exception as e:
         errors.append(f"Gemini: {e}")
 
+    error_detail = " | ".join(errors)
     if not use_online_fallback:
-        raise RuntimeError(" | ".join(errors))
+        raise RuntimeError(error_detail)
 
     annotated, unmatched = annotate_paragraph_rule_based(korean_text, vocab)
-    return annotated, unmatched + [f"(⚠️ AI annotate ব্যর্থ হয়েছে, rule-based ব্যবহার হয়েছে: {' | '.join(errors)})"]
+    return annotated, unmatched, "rule_based", error_detail
