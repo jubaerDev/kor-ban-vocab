@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.db import get_question_categories, get_questions_by_category
+from utils.db import get_question_categories, get_questions_by_category, save_feedback
 
 st.set_page_config(page_title="Question Bank", page_icon="📝", layout="wide")
 st.title("📝 Question Bank")
@@ -51,6 +51,19 @@ for idx, q in enumerate(questions, start=1):
         else:
             st.error(f"❌ ভুল। সঠিক Answer: {correct}. {options[correct-1]}")
         if q.get("explanation"):
-            st.info(f"**ব্যাখ্যা:** {q['explanation']}")
+            st.info(f"**ব্যাখ্যা:**\n\n{q['explanation']}")
+
+    with st.expander("🚩 এই answer/ব্যাখ্যা ভুল মনে হচ্ছে? Report করো"):
+        note = st.text_area("কী ভুল মনে হচ্ছে লেখো (ঐচ্ছিক)", key=f"note_{q['id']}")
+        suggested = st.radio(
+            "তোমার মতে সঠিক answer কোনটা? (ঐচ্ছিক)",
+            options=[None, 1, 2, 3, 4],
+            format_func=lambda x: "জানি না / বলবো না" if x is None else f"{x}. {options[x-1]}",
+            key=f"suggest_{q['id']}",
+            horizontal=True,
+        )
+        if st.button("📮 Feedback পাঠাও", key=f"send_fb_{q['id']}"):
+            save_feedback(q["id"], note, suggested)
+            st.success("Feedback পাঠানো হয়েছে, ধন্যবাদ! Question Bank Manager এ এটা দেখা যাবে।")
 
     st.divider()
