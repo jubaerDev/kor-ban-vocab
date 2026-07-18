@@ -15,6 +15,7 @@ from utils.db import (
     rebuild_database,
     get_words_by_chapter,
 )
+from utils.auth import is_admin, require_admin
 
 st.set_page_config(page_title="Image → Excel Extractor", page_icon="🖼️", layout="wide")
 st.title("🖼️ ছবি থেকে Excel (Korean-Bangla Vocab Table)")
@@ -187,53 +188,61 @@ if "extracted_df" in st.session_state:
         "(ঠিক Upload Chapter page যেভাবে কাজ করে, সেভাবেই — আগের chapter এর সাথে duplicate check হবে)।"
     )
 
-    try:
-        existing_chapters = get_all_chapter_numbers()
-    except Exception:
-        existing_chapters = []
-    suggested_next = (max(existing_chapters) + 1) if existing_chapters else 1
-
-    save_chapter_number = st.number_input(
-        "কোন Chapter নাম্বারে Save করবে?", min_value=1, step=1, value=suggested_next, key="save_chapter_num"
-    )
-
-    already_exists = False
-    try:
-        already_exists = chapter_exists(save_chapter_number)
-    except Exception:
-        pass
-
-    overwrite_confirmed = True
-    if already_exists:
-        st.warning(
-            f"⚠️ Chapter {save_chapter_number} আগে থেকেই database এ আছে। "
-            "Save করলে এই chapter এর আগের data মুছে গিয়ে নতুন data দিয়ে replace হয়ে যাবে।"
+    if not is_admin():
+        st.info(
+            "🔒 Database এ save করার জন্য Admin login লাগবে। এই section দেখা যাচ্ছে না — "
+            "Admin হলে বাম sidebar থেকে যেকোনো Manager page (যেমন Upload Chapter) এ গিয়ে login করো, "
+            "তারপর এই page এ ফিরে এলে save option চলে আসবে।"
         )
-        overwrite_confirmed = st.checkbox(
-            f"হ্যাঁ, Chapter {save_chapter_number} overwrite করতে চাই", key="overwrite_confirm_img"
+    else:
+
+        try:
+            existing_chapters = get_all_chapter_numbers()
+        except Exception:
+            existing_chapters = []
+        suggested_next = (max(existing_chapters) + 1) if existing_chapters else 1
+
+        save_chapter_number = st.number_input(
+            "কোন Chapter নাম্বারে Save করবে?", min_value=1, step=1, value=suggested_next, key="save_chapter_num"
         )
 
-    if st.button(
-        f"💾 Chapter {save_chapter_number} এ Save করো",
-        type="primary",
-        disabled=already_exists and not overwrite_confirmed,
-    ):
-        clean = edited_df[["Korean Word", "Bangla Meaning"]].copy()
-        clean.columns = ["Korean", "Bangla"]
-        clean["Korean"] = clean["Korean"].astype(str).str.strip()
-        clean["Bangla"] = clean["Bangla"].astype(str).str.strip()
-        clean = clean[(clean["Korean"] != "") & (clean["Korean"].str.lower() != "nan")]
-        pairs = list(zip(clean["Korean"], clean["Bangla"]))
+        already_exists = False
+        try:
+            already_exists = chapter_exists(save_chapter_number)
+        except Exception:
+            pass
 
-        with st.spinner("Database এ save হচ্ছে এবং পুরো hisab rebuild করা হচ্ছে..."):
-            save_raw_chapter(save_chapter_number, pairs)
-            rebuild_database()
-            final_rows = get_words_by_chapter(save_chapter_number)
+        overwrite_confirmed = True
+        if already_exists:
+            st.warning(
+                f"⚠️ Chapter {save_chapter_number} আগে থেকেই database এ আছে। "
+                "Save করলে এই chapter এর আগের data মুছে গিয়ে নতুন data দিয়ে replace হয়ে যাবে।"
+            )
+            overwrite_confirmed = st.checkbox(
+                f"হ্যাঁ, Chapter {save_chapter_number} overwrite করতে চাই", key="overwrite_confirm_img"
+            )
 
-        final_df = pd.DataFrame(final_rows)
-        if final_df.empty:
-            st.warning("Save হয়েছে, কিন্তু এই chapter এ কোনো নতুন/unique word নেই (সব word আগের chapter এ আগেই আছে)।")
-        else:
-            st.success(f"✅ Chapter {save_chapter_number} এ {len(final_df)} টা unique word save হয়ে গেছে।")
-            st.dataframe(final_df[["korean_word", "bangla_meaning"]], use_container_width=True)
-        st.caption("সম্পূর্ণ chapter দেখতে বা আরও download করতে **📂 Browse History** page এ যাও।")
+        if st.button(
+            f"💾 Chapter {save_chapter_number} এ Save করো",
+            type="primary",
+            disabled=already_exists and not overwrite_confirmed,
+        ):
+            clean = edited_df[["Korean Word", "Bangla Meaning"]].copy()
+            clean.columns = ["Korean", "Bangla"]
+            clean["Korean"] = clean["Korean"].astype(str).str.strip()
+            clean["Bangla"] = clean["Bangla"].astype(str).str.strip()
+            clean = clean[(clean["Korean"] != "") & (clean["Korean"].str.lower() != "nan")]
+            pairs = list(zip(clean["Korean"], clean["Bangla"]))
+
+            with st.spinner("Database এ save হচ্ছে এবং পুরো hisab rebuild করা হচ্ছে..."):
+                save_raw_chapter(save_chapter_number, pairs)
+                rebuild_database()
+                final_rows = get_words_by_chapter(save_chapter_number)
+
+            final_df = pd.DataFrame(final_rows)
+            if final_df.empty:
+                st.warning("Save হয়েছে, কিন্তু এই chapter এ কোনো নতুন/unique word নেই (সব word আগের chapter এ আগেই আছে)।")
+            else:
+                st.success(f"✅ Chapter {save_chapter_number} এ {len(final_df)} টা unique word save হয়ে গেছে।")
+                st.dataframe(final_df[["korean_word", "bangla_meaning"]], use_container_width=True)
+            st.caption("সম্পূর্ণ chapter দেখতে বা আরও download করতে **📂 Browse History** page এ যাও।")

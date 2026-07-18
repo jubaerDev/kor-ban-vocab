@@ -1,8 +1,10 @@
 import streamlit as st
 from utils.db import get_all_words, save_paragraph, get_book_chapters
 from utils.translator import annotate_paragraph
+from utils.auth import require_admin
 
 st.set_page_config(page_title="Paragraph Translator", page_icon="📖", layout="wide")
+require_admin()
 st.title("📖 Paragraph Translator")
 st.caption(
     "Korean paragraph paste করো — AI (Gemini/Anthropic) দিয়ে annotate করবে। "

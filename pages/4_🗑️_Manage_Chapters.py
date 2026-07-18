@@ -1,7 +1,9 @@
 import streamlit as st
 from utils.db import get_all_chapter_numbers, delete_chapter, rebuild_database, get_chapters_log
+from utils.auth import require_admin
 
 st.set_page_config(page_title="Manage Chapters", page_icon="🗑️")
+require_admin()
 st.title("🗑️ Chapter মুছে ফেলা / Rebuild")
 
 try:

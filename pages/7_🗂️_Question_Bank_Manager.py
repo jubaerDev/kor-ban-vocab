@@ -9,8 +9,10 @@ from utils.db import (
     resolve_feedback,
 )
 from utils.qbank_ai import generate_answer, parse_pasted_question
+from utils.auth import require_admin
 
 st.set_page_config(page_title="Question Bank Manager", page_icon="🗂️", layout="wide")
+require_admin()
 st.title("🗂️ Question Bank Manager")
 
 # ---------- Feedback inbox ----------

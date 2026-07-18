@@ -12,8 +12,10 @@ from utils.db import (
     rebuild_database,
     get_words_by_chapter,
 )
+from utils.auth import require_admin
 
 st.set_page_config(page_title="Upload Chapter", page_icon="📤")
+require_admin()
 st.title("📤 নতুন Chapter Upload করো")
 
 existing_chapters = []
