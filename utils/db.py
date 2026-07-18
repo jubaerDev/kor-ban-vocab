@@ -180,7 +180,42 @@ def get_chapter_full_analysis(chapter_number):
     return results
 
 
-def rebuild_database():
+def save_paragraph(chapter_number, chapter_title, heading, paragraph_label, korean_original, annotated_text):
+    client = get_client()
+    client.table("book_paragraphs").insert(
+        {
+            "chapter_number": int(chapter_number),
+            "chapter_title": chapter_title,
+            "heading": heading,
+            "paragraph_label": paragraph_label,
+            "korean_original": korean_original,
+            "annotated_text": annotated_text,
+        }
+    ).execute()
+
+
+def get_book_chapters():
+    """যেসব chapter_number এ ইতিমধ্যে paragraph save হয়েছে, তাদের list (ছোট থেকে বড়)।"""
+    rows = _fetch_all("book_paragraphs", "chapter_number")
+    return sorted(set(r["chapter_number"] for r in rows))
+
+
+def get_chapter_paragraphs(chapter_number):
+    """একটা chapter এর সব paragraph, save হওয়ার ক্রম অনুযায়ী (id অনুযায়ী)।"""
+    return _fetch_all(
+        "book_paragraphs",
+        "id, chapter_title, heading, paragraph_label, korean_original, annotated_text, created_at",
+        eq_filter=("chapter_number", chapter_number),
+        order_cols=["id"],
+    )
+
+
+def delete_paragraph(paragraph_id):
+    client = get_client()
+    client.table("book_paragraphs").delete().eq("id", paragraph_id).execute()
+
+
+
     """
     raw_chapter_words থেকে chapter-number ক্রম অনুযায়ী প্রতিটা chapter প্রসেস করে
     vocab_words ও chapters_log সম্পূর্ণ নতুন করে বানায়। এটাই নিশ্চিত করে যে
