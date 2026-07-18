@@ -215,7 +215,42 @@ def delete_paragraph(paragraph_id):
     client.table("book_paragraphs").delete().eq("id", paragraph_id).execute()
 
 
+def save_question(category, question_text, options, correct_answer, explanation):
+    client = get_client()
+    client.table("question_bank").insert(
+        {
+            "category": category,
+            "question_text": question_text,
+            "option1": options[0],
+            "option2": options[1],
+            "option3": options[2],
+            "option4": options[3],
+            "correct_answer": int(correct_answer),
+            "explanation": explanation,
+        }
+    ).execute()
 
+
+def get_question_categories():
+    rows = _fetch_all("question_bank", "category")
+    return sorted(set(r["category"] for r in rows))
+
+
+def get_questions_by_category(category):
+    return _fetch_all(
+        "question_bank",
+        "id, question_text, option1, option2, option3, option4, correct_answer, explanation",
+        eq_filter=("category", category),
+        order_cols=["id"],
+    )
+
+
+def delete_question(question_id):
+    client = get_client()
+    client.table("question_bank").delete().eq("id", question_id).execute()
+
+
+def rebuild_database():
     """
     raw_chapter_words থেকে chapter-number ক্রম অনুযায়ী প্রতিটা chapter প্রসেস করে
     vocab_words ও chapters_log সম্পূর্ণ নতুন করে বানায়। এটাই নিশ্চিত করে যে
