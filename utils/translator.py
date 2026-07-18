@@ -78,15 +78,17 @@ Annotate করার Korean paragraph:
 
 def annotate_paragraph_gemini(korean_text, vocab: dict, use_vocab=True):
     """Google Gemini (সম্পূর্ণ ফ্রি tier) দিয়ে accurate annotate করে।
+    নতুন google-genai SDK ব্যবহার করা হয়েছে যাতে নতুন 'AQ.' প্রিফিক্স key ও কাজ করে
+    (পুরনো google-generativeai library এই নতুন key format সাপোর্ট করে না)।
     use_vocab=False দিলে আমাদের word database একদম ব্যবহার হবে না —
     Gemini তার নিজের জ্ঞান দিয়ে সম্পূর্ণ স্বাধীনভাবে annotate করবে (best quality)।"""
-    import google.generativeai as genai
+    from google import genai as google_genai
 
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY secrets এ পাওয়া যায়নি।")
 
-    genai.configure(api_key=api_key)
+    client = google_genai.Client(api_key=api_key)
 
     if use_vocab:
         relevant_vocab = _filter_relevant_vocab(korean_text, vocab)
@@ -100,8 +102,7 @@ def annotate_paragraph_gemini(korean_text, vocab: dict, use_vocab=True):
 {vocab_block}Annotate করার Korean paragraph:
 {korean_text}"""
 
-    model = genai.GenerativeModel("gemini-2.0-flash")
-    response = model.generate_content(user_msg)
+    response = client.models.generate_content(model="gemini-2.0-flash", contents=user_msg)
     annotated = response.text.strip()
     return annotated, []
 
