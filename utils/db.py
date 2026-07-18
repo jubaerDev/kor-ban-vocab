@@ -250,6 +250,51 @@ def delete_question(question_id):
     client.table("question_bank").delete().eq("id", question_id).execute()
 
 
+def update_question_answer(question_id, new_answer, new_explanation=None):
+    client = get_client()
+    payload = {"correct_answer": int(new_answer)}
+    if new_explanation is not None:
+        payload["explanation"] = new_explanation
+    client.table("question_bank").update(payload).eq("id", question_id).execute()
+
+
+def save_feedback(question_id, note, suggested_answer):
+    client = get_client()
+    client.table("question_feedback").insert(
+        {
+            "question_id": int(question_id),
+            "note": note,
+            "suggested_answer": int(suggested_answer) if suggested_answer else None,
+        }
+    ).execute()
+
+
+def get_unresolved_feedback():
+    """সব unresolved feedback, প্রতিটার সাথে সংশ্লিষ্ট question এর তথ্য জুড়ে দেওয়া।"""
+    rows = _fetch_all(
+        "question_feedback",
+        "id, question_id, note, suggested_answer, created_at",
+        eq_filter=("resolved", False),
+        order_cols=["id"],
+    )
+    client = get_client()
+    for r in rows:
+        q = (
+            client.table("question_bank")
+            .select("category, question_text, option1, option2, option3, option4, correct_answer")
+            .eq("id", r["question_id"])
+            .execute()
+            .data
+        )
+        r["question_info"] = q[0] if q else None
+    return rows
+
+
+def resolve_feedback(feedback_id):
+    client = get_client()
+    client.table("question_feedback").update({"resolved": True}).eq("id", feedback_id).execute()
+
+
 def rebuild_database():
     """
     raw_chapter_words থেকে chapter-number ক্রম অনুযায়ী প্রতিটা chapter প্রসেস করে
