@@ -10,11 +10,22 @@ page এর কোড রান হবে না।
 import streamlit as st
 
 
+def _admin_mode_enabled():
+    """secrets এ ADMIN_MODE_ENABLED = false দিলে সাময়িকভাবে সবাই admin হিসেবে
+    গণ্য হবে (কোনো password লাগবে না)। এই key না থাকলে ডিফল্টভাবে protection চালু থাকে।"""
+    return st.secrets.get("ADMIN_MODE_ENABLED", True)
+
+
 def is_admin():
+    if not _admin_mode_enabled():
+        return True
     return st.session_state.get("is_admin", False)
 
 
 def require_admin():
+    if not _admin_mode_enabled():
+        return  # Admin mode বন্ধ আছে — সবাইকে admin হিসেবে ধরা হচ্ছে
+
     if is_admin():
         with st.sidebar:
             st.success("🔓 Admin মোড")
