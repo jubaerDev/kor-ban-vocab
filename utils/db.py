@@ -369,6 +369,45 @@ def get_flashcard_stats():
     return {"total_tracked": total_tracked, "mastered": mastered}
 
 
+# ---------- Grammar Bank ----------
+
+def save_grammar_point(chapter_number, grammar_term, explanation, example):
+    client = get_client()
+    client.table("grammar_points").insert(
+        {
+            "chapter_number": int(chapter_number),
+            "grammar_term": grammar_term,
+            "explanation": explanation,
+            "example": example,
+        }
+    ).execute()
+
+
+def get_grammar_chapters():
+    rows = _fetch_all("grammar_points", "chapter_number")
+    return sorted(set(r["chapter_number"] for r in rows))
+
+
+def get_grammar_points(chapter_number=None):
+    if chapter_number is not None:
+        return _fetch_all(
+            "grammar_points",
+            "id, chapter_number, grammar_term, explanation, example",
+            eq_filter=("chapter_number", chapter_number),
+            order_cols=["id"],
+        )
+    return _fetch_all(
+        "grammar_points",
+        "id, chapter_number, grammar_term, explanation, example",
+        order_cols=["chapter_number", "id"],
+    )
+
+
+def delete_grammar_point(grammar_id):
+    client = get_client()
+    client.table("grammar_points").delete().eq("id", grammar_id).execute()
+
+
 def rebuild_database():
     """
     raw_chapter_words থেকে chapter-number ক্রম অনুযায়ী প্রতিটা chapter প্রসেস করে
