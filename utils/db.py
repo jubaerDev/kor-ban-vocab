@@ -388,6 +388,64 @@ def get_grammar_chapters():
     return sorted(set(r["chapter_number"] for r in rows))
 
 
+# ---------- Vocabulary Categories + Synonym/Antonym ----------
+
+def get_uncategorized_words(batch_size=30):
+    """যেসব word এখনো category পায়নি, তাদের মধ্যে থেকে পরের batch_size টা ফেরত দেয়
+    (মোট word সংখ্যা ও এখন পর্যন্ত categorize হওয়া সংখ্যাও দেয়, progress দেখানোর জন্য)।"""
+    all_words = _fetch_all("vocab_words", "korean_word, bangla_meaning")
+    enriched_rows = _fetch_all("word_enrichment", "korean_word")
+    enriched_set = set(r["korean_word"] for r in enriched_rows)
+
+    uncategorized = [w for w in all_words if w["korean_word"] not in enriched_set]
+    return uncategorized[:batch_size], len(all_words), len(enriched_set)
+
+
+def save_enrichment_batch(rows):
+    """rows: list of dict {korean_word, category, synonyms, antonyms, bangla_synonyms, bangla_antonyms}"""
+    if not rows:
+        return
+    client = get_client()
+    now = None
+    import datetime
+
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    payload = [
+        {
+            "korean_word": r["korean_word"],
+            "category": r.get("category") or "Other",
+            "synonyms": r.get("synonyms") or "",
+            "antonyms": r.get("antonyms") or "",
+            "bangla_synonyms": r.get("bangla_synonyms") or "",
+            "bangla_antonyms": r.get("bangla_antonyms") or "",
+            "updated_at": now,
+        }
+        for r in rows
+    ]
+    client.table("word_enrichment").upsert(payload, on_conflict="korean_word").execute()
+
+
+def get_category_list():
+    rows = _fetch_all("word_enrichment", "category")
+    return sorted(set(r["category"] for r in rows if r.get("category")))
+
+
+def get_words_by_category(category):
+    enriched = _fetch_all(
+        "word_enrichment",
+        "korean_word, category, synonyms, antonyms, bangla_synonyms, bangla_antonyms",
+        eq_filter=("category", category),
+    )
+    if not enriched:
+        return []
+    all_vocab = _fetch_all("vocab_words", "korean_word, bangla_meaning")
+    vocab_map = {v["korean_word"]: v["bangla_meaning"] for v in all_vocab}
+    result = []
+    for r in enriched:
+        result.append({**r, "bangla_meaning": vocab_map.get(r["korean_word"], "")})
+    return sorted(result, key=lambda x: x["korean_word"])
+
+
 def get_grammar_points(chapter_number=None):
     if chapter_number is not None:
         return _fetch_all(
