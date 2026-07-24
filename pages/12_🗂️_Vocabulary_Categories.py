@@ -4,6 +4,7 @@ from utils.db import (
     save_enrichment_batch,
     get_category_list,
     get_words_by_category,
+    auto_categorize_all,
 )
 from utils.category_ai import categorize_words_batch, FIXED_CATEGORIES
 from utils.auth import is_admin
@@ -28,8 +29,9 @@ if is_admin():
         if remaining <= 0:
             st.success("✅ সব word ইতিমধ্যে categorize হয়ে গেছে!")
         else:
-            st.caption(f"বাকি আছে {remaining} টা word। প্রতিবার ৩০টা করে batch এ process হবে।")
-            if st.button("🤖 পরবর্তী ৩০টা Word Categorize করো", type="primary"):
+            st.caption(f"বাকি আছে {remaining} টা word।")
+            c1, c2 = st.columns(2)
+            if c1.button("🤖 পরের ৩০টা করো"):
                 with st.spinner("AI প্রতিটা word এর category, synonym, antonym ঠিক করছে..."):
                     try:
                         pairs = [(w["korean_word"], w["bangla_meaning"]) for w in preview_batch]
@@ -39,6 +41,20 @@ if is_admin():
                         st.rerun()
                     except Exception as e:
                         st.error(f"Categorize করা যায়নি: {e}")
+
+            if c2.button("🔄 সব বাকি Auto-Categorize করো", type="primary"):
+                progress_placeholder = st.progress(0.0, text="শুরু হচ্ছে...")
+
+                def _update(done, total):
+                    frac = (done / total) if total else 1.0
+                    progress_placeholder.progress(frac, text=f"{done} / {total} categorize হয়েছে")
+
+                try:
+                    done, total = auto_categorize_all(progress_callback=_update)
+                    st.success(f"✅ সম্পন্ন! মোট {done}/{total} word categorize হয়ে গেছে")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Auto-categorize মাঝপথে থেমে গেছে: {e}")
 
 st.divider()
 

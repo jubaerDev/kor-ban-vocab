@@ -11,6 +11,7 @@ from utils.db import (
     save_raw_chapter,
     rebuild_database,
     get_words_by_chapter,
+    auto_categorize_all,
 )
 from utils.auth import require_admin
 
@@ -84,6 +85,12 @@ if uploaded_file and (not already_exists or overwrite_confirmed):
             save_raw_chapter(chapter_number, pairs)
             rebuild_database()
             final_rows = get_words_by_chapter(chapter_number)
+
+        with st.spinner("🤖 AI দিয়ে নতুন word গুলোর category/synonym/antonym বসানো হচ্ছে..."):
+            try:
+                auto_categorize_all(chapter_number=chapter_number)
+            except Exception as e:
+                st.warning(f"⚠️ Auto-categorize করা যায়নি (পরে Vocabulary Categories page থেকে করা যাবে): {e}")
 
         final_df = pd.DataFrame(final_rows)
         st.session_state["final_df"] = final_df
