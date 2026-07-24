@@ -390,15 +390,45 @@ def get_grammar_chapters():
 
 # ---------- Vocabulary Categories + Synonym/Antonym ----------
 
-def get_uncategorized_words(batch_size=30):
-    """যেসব word এখনো category পায়নি, তাদের মধ্যে থেকে পরের batch_size টা ফেরত দেয়
-    (মোট word সংখ্যা ও এখন পর্যন্ত categorize হওয়া সংখ্যাও দেয়, progress দেখানোর জন্য)।"""
-    all_words = _fetch_all("vocab_words", "korean_word, bangla_meaning")
+def get_uncategorized_words(batch_size=30, chapter_number=None):
+    """যেসব word এখনো category পায়নি, তাদের মধ্যে থেকে পরের batch_size টা ফেরত দেয়।
+    chapter_number দিলে শুধু সেই chapter এর মধ্যেই খুঁজবে (নতুন upload এর পর
+    সেই chapter এর word গুলোই categorize করার জন্য কাজে লাগে)।"""
+    if chapter_number is not None:
+        all_words = _fetch_all(
+            "vocab_words", "korean_word, bangla_meaning", eq_filter=("chapter_number", chapter_number)
+        )
+    else:
+        all_words = _fetch_all("vocab_words", "korean_word, bangla_meaning")
+
     enriched_rows = _fetch_all("word_enrichment", "korean_word")
     enriched_set = set(r["korean_word"] for r in enriched_rows)
 
     uncategorized = [w for w in all_words if w["korean_word"] not in enriched_set]
     return uncategorized[:batch_size], len(all_words), len(enriched_set)
+
+
+def auto_categorize_all(chapter_number=None, batch_size=30, progress_callback=None):
+    """সব (বা নির্দিষ্ট chapter এর) বাকি থাকা word একটার পর একটা batch করে
+    categorize করে যায়, যতক্ষণ না সব শেষ হয়। progress_callback(done, total)
+    দিলে প্রতি batch এর পর সেটা কল করে UI progress bar আপডেট করা যায়।
+    Returns: (done_count, total_count)"""
+    from utils.category_ai import categorize_words_batch
+
+    done = 0
+    total = 0
+    while True:
+        batch, total, done_so_far = get_uncategorized_words(batch_size=batch_size, chapter_number=chapter_number)
+        done = done_so_far
+        if not batch:
+            break
+        pairs = [(w["korean_word"], w["bangla_meaning"]) for w in batch]
+        results = categorize_words_batch(pairs)
+        save_enrichment_batch(results)
+        done += len(results)
+        if progress_callback:
+            progress_callback(done, total)
+    return done, total
 
 
 def save_enrichment_batch(rows):
