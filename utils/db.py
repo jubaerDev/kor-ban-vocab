@@ -568,3 +568,80 @@ def rebuild_database():
 
     if log_payload:
         client.table("chapters_log").insert(log_payload).execute()
+
+
+# ---------- Weak Area Analytics ----------
+
+def get_weak_chapters():
+    """প্রতিটা chapter এর accuracy (times_correct/times_reviewed) হিসাব করে,
+    সবচেয়ে কম accuracy (দুর্বল) chapter আগে রেখে sort করে ফেরত দেয়।"""
+    from collections import defaultdict
+
+    progress = _fetch_all(
+        "flashcard_progress", "korean_word, chapter_number, box_level, times_reviewed, times_correct"
+    )
+    by_chapter = defaultdict(lambda: {"reviewed": 0, "correct": 0, "words": 0, "stuck": 0})
+    for p in progress:
+        d = by_chapter[p["chapter_number"]]
+        d["reviewed"] += p["times_reviewed"]
+        d["correct"] += p["times_correct"]
+        d["words"] += 1
+        if p["box_level"] <= 1:
+            d["stuck"] += 1
+
+    result = []
+    for chapter, d in by_chapter.items():
+        accuracy = (d["correct"] / d["reviewed"] * 100) if d["reviewed"] else None
+        result.append(
+            {
+                "chapter": chapter,
+                "accuracy": accuracy,
+                "words_tracked": d["words"],
+                "stuck_words": d["stuck"],
+                "reviews": d["reviewed"],
+            }
+        )
+    # accuracy None (এখনো review হয়নি) গুলো শেষে, বাকিগুলো accuracy অনুযায়ী ছোট থেকে বড়
+    return sorted(result, key=lambda x: x["accuracy"] if x["accuracy"] is not None else 999)
+
+
+def get_weak_categories():
+    """word_enrichment এর category অনুযায়ী accuracy হিসাব করে, দুর্বল category আগে।"""
+    from collections import defaultdict
+
+    progress = _fetch_all("flashcard_progress", "korean_word, box_level, times_reviewed, times_correct")
+    enrichment = _fetch_all("word_enrichment", "korean_word, category")
+    cat_map = {e["korean_word"]: e.get("category") for e in enrichment}
+
+    by_cat = defaultdict(lambda: {"reviewed": 0, "correct": 0, "words": 0})
+    for p in progress:
+        cat = cat_map.get(p["korean_word"])
+        if not cat:
+            continue
+        d = by_cat[cat]
+        d["reviewed"] += p["times_reviewed"]
+        d["correct"] += p["times_correct"]
+        d["words"] += 1
+
+    result = []
+    for cat, d in by_cat.items():
+        accuracy = (d["correct"] / d["reviewed"] * 100) if d["reviewed"] else None
+        result.append({"category": cat, "accuracy": accuracy, "words_tracked": d["words"], "reviews": d["reviewed"]})
+    return sorted(result, key=lambda x: x["accuracy"] if x["accuracy"] is not None else 999)
+
+
+def get_trouble_words(limit=30):
+    """যেসব word বার বার review করার পরও এখনো Box 1 এ আটকে আছে (মানে বার বার ভুল হচ্ছে)।"""
+    progress = _fetch_all(
+        "flashcard_progress", "korean_word, chapter_number, box_level, times_reviewed, times_correct"
+    )
+    trouble = [p for p in progress if p["box_level"] <= 1 and p["times_reviewed"] >= 2]
+    trouble.sort(key=lambda p: p["times_reviewed"], reverse=True)
+
+    vocab = _fetch_all("vocab_words", "korean_word, bangla_meaning")
+    vocab_map = {v["korean_word"]: v["bangla_meaning"] for v in vocab}
+
+    result = []
+    for p in trouble[:limit]:
+        result.append({**p, "bangla_meaning": vocab_map.get(p["korean_word"], "")})
+    return result
