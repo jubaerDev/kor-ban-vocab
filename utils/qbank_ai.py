@@ -24,13 +24,17 @@ CANDIDATE_MODELS = ["gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-flash-l
 # ---------- Auto-parse pasted question+options block ----------
 
 _OPTION_LINE_RE = re.compile(r"^\s*([1-4])\s*[.\)．]\s*(.+?)\s*$")
+_CIRCLED_DIGIT_MAP = {"①": 1, "②": 2, "③": 3, "④": 4}
 
 
 def parse_pasted_question(raw_text):
     """
     পুরো paste করা block থেকে question stem ও ৪টা option আলাদা করে।
-    Options আলাদা লাইনে "1. ..." "2. ..." আকারে থাকবে ধরে নেওয়া হয়েছে
-    (একই লাইনে ১টার বেশি option থাকলেও চেষ্টা করবে, তবে আলাদা লাইন সবচেয়ে নির্ভরযোগ্য)।
+    দুই ধরনের option ফরম্যাট বুঝতে পারে:
+      - "1. option" / "2) option" স্টাইল
+      - "① option" / "② option" (গোল সংখ্যা, TOPIK বইয়ে common) স্টাইল
+    Option গুলো paste এ যে ক্রমেই থাকুক (এলোমেলো হলেও), সংখ্যা/গোল-সংখ্যা দেখেই
+    সঠিক জায়গায় (1,2,3,4) বসাবে।
     Returns: (question_stem, [opt1, opt2, opt3, opt4]) — না মিললে None value থাকবে,
     সেগুলো UI তে manually পূরণ করতে হবে।
     """
@@ -39,14 +43,25 @@ def parse_pasted_question(raw_text):
     stem_lines = []
 
     for line in lines:
-        m = _OPTION_LINE_RE.match(line)
-        if m:
-            num = int(m.group(1))
-            options[num] = m.group(2).strip()
+        stripped = line.strip()
+        matched = False
+
+        # প্রথমে circled digit (①②③④) চেক করা
+        if stripped and stripped[0] in _CIRCLED_DIGIT_MAP:
+            num = _CIRCLED_DIGIT_MAP[stripped[0]]
+            options[num] = stripped[1:].strip()
+            matched = True
         else:
+            m = _OPTION_LINE_RE.match(line)
+            if m:
+                num = int(m.group(1))
+                options[num] = m.group(2).strip()
+                matched = True
+
+        if not matched:
             # option শুরু হওয়ার আগ পর্যন্ত সব লাইন question stem এর অংশ
             if all(v is None for v in options.values()):
-                stem_lines.append(line.strip())
+                stem_lines.append(stripped)
 
     question_stem = " ".join(stem_lines).strip()
     # প্রশ্ন নম্বর প্রিফিক্স (যেমন "13.") থাকলে সরিয়ে দেওয়া
