@@ -753,6 +753,7 @@ Create my personalized spaced-repetition schedule.
 25. LANGUAGE RULE
 
 Explain everything mainly in natural Bangla.
+Explaination must also in natural Bangla
 
 Keep Korean words and sentences in Korean.
 
