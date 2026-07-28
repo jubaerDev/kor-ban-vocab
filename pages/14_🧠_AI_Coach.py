@@ -12,52 +12,72 @@ st.caption(
 if "coach_history" not in st.session_state:
     st.session_state["coach_history"] = []
 
-# ---------- Session শুরু করা (word list দিয়ে) ----------
+
+def _start_session(word_list_text, label):
+    first_message = f"My vocabulary list is:\n\n{word_list_text.strip()}"
+    with st.spinner(f"AI {label} বিশ্লেষণ করছে..."):
+        try:
+            reply, engine = send_coach_message([], first_message)
+            st.session_state["coach_history"] = [
+                {"role": "user", "content": first_message},
+                {"role": "assistant", "content": reply},
+            ]
+            st.session_state["coach_engine"] = engine
+            st.session_state["coach_label"] = label
+            st.rerun()
+        except Exception as e:
+            st.error(f"শুরু করা যায়নি: {e}")
+
+
+# ---------- Session শুরু করা ----------
 if not st.session_state["coach_history"]:
-    st.subheader("নতুন Session শুরু করো")
+    st.subheader("📖 পুরো একটা Chapter নিয়ে Session শুরু করো")
+    st.caption("Chapter বেছে নিলেই সেই chapter এর সব word নিয়ে সাথে সাথে session শুরু হয়ে যাবে।")
 
     try:
         chapters = get_all_chapter_numbers()
     except Exception:
         chapters = []
 
-    col1, col2 = st.columns([1, 2])
-    use_chapter = col1.checkbox("Chapter থেকে word নাও")
-    word_list_text = ""
+    if not chapters:
+        st.info("এখনো কোনো chapter upload হয়নি।")
+    else:
+        selected_chapter = st.selectbox("Chapter বেছে নাও", chapters, format_func=lambda c: f"Chapter {c}")
 
-    if use_chapter and chapters:
-        selected_chapter = col1.selectbox("Chapter", chapters)
-        if col1.button("📥 এই Chapter এর word লোড করো"):
-            words = get_words_by_chapter(selected_chapter)
-            word_list_text = "\n".join(w["korean_word"] for w in words)
-            st.session_state["coach_word_draft"] = word_list_text
+        try:
+            chapter_words = get_words_by_chapter(selected_chapter)
+        except Exception as e:
+            chapter_words = []
+            st.error(f"Word লোড করা যায়নি: {e}")
 
-    default_text = st.session_state.get("coach_word_draft", "")
-    pasted = col2.text_area(
-        "Korean word list (একটা লাইনে একটা word)",
-        value=default_text,
-        height=200,
-        placeholder="토목\n시공\n상수도관\n설치하다\n주의하다\n누수\n...",
-    )
+        st.write(f"এই Chapter এ **{len(chapter_words)}** টা word আছে।")
 
-    if st.button("🚀 Session শুরু করো", type="primary", disabled=not pasted.strip()):
-        first_message = f"My vocabulary list is:\n\n{pasted.strip()}"
-        with st.spinner("AI পুরো list বিশ্লেষণ করছে..."):
-            try:
-                reply, engine = send_coach_message([], first_message)
-                st.session_state["coach_history"] = [
-                    {"role": "user", "content": first_message},
-                    {"role": "assistant", "content": reply},
-                ]
-                st.session_state["coach_engine"] = engine
-                st.rerun()
-            except Exception as e:
-                st.error(f"শুরু করা যায়নি: {e}")
+        if len(chapter_words) > 60:
+            st.warning(
+                "⚠️ এতগুলো word একসাথে দিলে AI প্রথম response এ শুধু group/analysis দেখাবে "
+                "(ধাপে ধাপে শেখাবে), কিন্তু response অনেক বড় হতে পারে। চাইলে নিচে থেকে "
+                "chapter-কে ছোট অংশে ভাগ করেও শুরু করতে পারো।"
+            )
+
+        if st.button(f"🚀 পুরো Chapter {selected_chapter} নিয়ে Session শুরু করো", type="primary", disabled=not chapter_words):
+            word_list_text = "\n".join(w["korean_word"] for w in chapter_words)
+            _start_session(word_list_text, f"Chapter {selected_chapter}")
+
+    st.divider()
+    with st.expander("✏️ অথবা নিজের মতো word list Paste করো (custom)"):
+        pasted = st.text_area(
+            "Korean word list (একটা লাইনে একটা word)",
+            height=180,
+            placeholder="토목\n시공\n상수도관\n설치하다\n주의하다\n누수\n...",
+        )
+        if st.button("🚀 এই Custom List দিয়ে Session শুরু করো", disabled=not pasted.strip()):
+            _start_session(pasted, "custom list")
 
 # ---------- চলমান Session (chat UI) ----------
 else:
-    if st.session_state.get("coach_engine"):
-        st.caption(f"AI engine: {st.session_state['coach_engine']}")
+    label = st.session_state.get("coach_label", "")
+    engine = st.session_state.get("coach_engine", "")
+    st.caption(f"চলছে: {label} | AI engine: {engine}")
 
     for msg in st.session_state["coach_history"]:
         role = "user" if msg["role"] == "user" else "assistant"
@@ -83,5 +103,5 @@ else:
     st.divider()
     if st.button("🔄 নতুন Session শুরু করো (এই session মুছে যাবে)"):
         st.session_state["coach_history"] = []
-        st.session_state.pop("coach_word_draft", None)
+        st.session_state.pop("coach_label", None)
         st.rerun()
